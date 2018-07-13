@@ -1,7 +1,64 @@
 import json
 from requests_oauthlib import OAuth2Session
 from oauthlib.oauth2 import MobileApplicationClient
-import requests
+from datetime import datetime, timedelta
+import time
+
+
+# Function to make date strings and add them to a list
+def walk_days(start_date, end_date, list_of_dates):
+    if start_date <= end_date:
+        list_of_dates.append(start_date.strftime("%Y-%m-%d"))
+        next_date = start_date + timedelta(days=1)
+        walk_days(next_date, end_date, list_of_dates)
+
+
+# Execute single data request with single URL fragment combination and single date
+def get_data_for_fragment_on_date(fbSession, url, date):
+    time.sleep(24)
+    return fbSession.get(url.replace('{date}', date))
+    # return url.replace('{date}', date) # for debugging, to check you got all your urls in the right arrangement
+
+
+# Loop through all dates for single URL fragment combination
+def get_all_dates_for_url(fbSession, url, dates):
+    returnableObject = []
+    if '{date}' in url:
+        for date in dates:
+            returnableObject.append(get_data_for_fragment_on_date(fbSession, url, date))
+    else:
+        returnableObject.append(url)
+    return returnableObject
+
+
+# Loop through all URL fragment combinations
+def get_all_data_for_all_urls(fbSession, url_lists, dates):
+    returnableObject = []
+    for url_list in url_lists:
+        for url in url_list:
+            returnableObject.append(get_all_dates_for_url(fbSession, url, dates))
+    return returnableObject
+
+
+# Construct list of all individual URL combinations, minus dates
+def get_list_of_all_url_combinations_minus_dates(prefix, postfix,
+                                                 v1_0, v1_2,
+                                                 act_sum, act1min, act15min,
+                                                 resources, sleep, heart,
+                                                 goals_daily, goals_weekly):
+    sleep_url = [prefix + v1_2 + sleep + postfix]
+    heart_url = [prefix + v1_0 + heart + postfix]
+    activity_summaries_url = [prefix + v1_0 + act_sum + postfix]
+    goals = [prefix + v1_0 + goals_daily + postfix, prefix + v1_0 + goals_weekly + postfix]
+    activities_1min = []
+    for resource in resources:
+        activities_1min.append(prefix + v1_0 + act1min.replace('{resource-path}', resource) + postfix)
+    activities_15min = []
+    for resource in resources:
+        activities_15min.append(prefix + v1_0 + act15min.replace('{resource-path}', resource) + postfix)
+    return [goals, sleep_url, heart_url, activity_summaries_url, activities_1min, activities_15min]
+    # return [goals] # for debugging, to check it works all the way through with only 2 API requests (doesn't check proper URL formation with dates)
+
 
 secret_codes_file_path = '../secretCodes.txt'
 
@@ -15,8 +72,8 @@ token_uri = 'https://api.fitbit.com/oauth2/token'
 scopes = ['activity', 'heartrate', 'location', 'nutrition', 'profile', 'settings', 'sleep', 'social', 'weight']
 token = ''
 
-needs_authorization = input('Do you need to reauthorize? (y/n)') # for when you need to authorize
-# needs_authorization = 'n' # for when you need to run it and you already have the authorization token
+# needs_authorization = input('Do you need to reauthorize? (y/n)') # for when you need to authorize
+needs_authorization = 'n'  # for when you need to run it and you already have the authorization token
 
 # Initialize client
 client = MobileApplicationClient(secret_codes_json['clientId'])
@@ -43,12 +100,50 @@ if (needs_authorization == 'y'):
     # Now we extract the token from the URL to make use of it.
     fitbit.token_from_fragment(callback_url)
 else:
-    fitbit.token_from_fragment(str('https://localhost#access_token=' + secret_codes_json['accessToken'] + '&state=' + secret_codes_json['state']))
+    fitbit.token_from_fragment(str(
+        'https://localhost#access_token=' + secret_codes_json['accessToken'] + '&state=' + secret_codes_json['state']))
 
-# At this point, assuming nothing blew up, we can make calls to the API as normal, for example:
-response = fitbit.get('https://api.fitbit.com/1/user/-/activities/goals/daily.json')
+# Request URL fragments
+fitbit_api_prefix = 'https://api.fitbit.com'
+fitbit_api_postfix = '.json'
+fitbit_api_v1_0_fragment = '/1/user/-/'
+fitbit_api_v1_2_fragment = '/1.2/user/-/'
+fitbit_api_goals_daily_fragment = 'activities/goals/daily'
+fitbit_api_goals_weekly_fragment = 'activities/goals/weekly'
+fitbit_api_sleep_fragment = 'sleep/date/{date}'
+fitbit_api_daily_activity_summary_fragment = 'activities/date/{date}'
+fitbit_api_activities_1min_fragment = 'activities/{resource-path}/date/{date}/1d/1min'
+fitbit_api_activities_15min_fragment = 'activities/{resource-path}/date/{date}/1d/15min'
+fitbit_api_list_of_resource_path_fragments = ['calories',
+                                              'caloriesBMR',
+                                              'steps',
+                                              'distance',
+                                              'floors',
+                                              'elevation',
+                                              'minutesSedentary',
+                                              'minutesLightlyActive',
+                                              'minutesFairlyActive',
+                                              'minutesVeryActive',
+                                              'activityCalories']
+fitbit_api_heart_fragment = 'activities/heart/date/{date}/1d'
 
-print(type(response))
-print(response.status_code)
-print(response.headers)
-print(response.text)
+# Create list of dates to be queried
+start_date = datetime(2017, 3, 24)
+end_date = datetime(2018, 7, 13)
+list_of_dates = []
+walk_days(start_date, end_date, list_of_dates)
+
+all_urls = get_list_of_all_url_combinations_minus_dates(fitbit_api_prefix, fitbit_api_postfix, fitbit_api_v1_0_fragment,
+                                                        fitbit_api_v1_2_fragment,
+                                                        fitbit_api_daily_activity_summary_fragment,
+                                                        fitbit_api_activities_1min_fragment,
+                                                        fitbit_api_activities_15min_fragment,
+                                                        fitbit_api_list_of_resource_path_fragments,
+                                                        fitbit_api_sleep_fragment,
+                                                        fitbit_api_heart_fragment,
+                                                        fitbit_api_goals_daily_fragment,
+                                                        fitbit_api_goals_weekly_fragment)
+
+all_data = get_all_data_for_all_urls(fitbit, all_urls, list_of_dates)
+
+print("done")
