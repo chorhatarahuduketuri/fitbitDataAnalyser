@@ -13,6 +13,10 @@ https://dev.fitbit.com/build/reference/web-api/explore/ \
 #### Date Format
 YYYY-mm-dd
 
+#### Rate limit
+150 per hour.\
+See response headers for real time data on where you're up to with that. 
+
 #### Resource Path Options
 ##### ACTIVITY
 activities/calories
